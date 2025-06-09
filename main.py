@@ -63,7 +63,12 @@ app = FastAPI()
 
 @app.on_event("startup")
 async def startup():
-    global bot_app
+    global bot_app, KEY_MAP
+
+    # Load Google Sheet ngay khi bot khởi động
+    KEY_MAP = load_key_map_from_sheet()
+
+    # Khởi tạo Telegram Bot
     bot_app = Application.builder().token(BOT_TOKEN).build()
 
     bot_app.add_handler(CommandHandler("start", start))
@@ -71,7 +76,8 @@ async def startup():
     bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_key))
 
     await bot_app.initialize()
-    logger.info("✅ Bot initialized")
+    logger.info("✅ Bot initialized and sheet loaded.")
+
 
 @app.post("/webhook/{token}")
 async def telegram_webhook(token: str, request: Request):
