@@ -1,0 +1,6 @@
+python-telegram-bot==22.1
+fastapi
+uvicorn
+gspread
+oauth2client
+pandas
