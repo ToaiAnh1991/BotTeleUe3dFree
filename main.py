@@ -16,16 +16,15 @@ from telegram.ext import (
 # ENV
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHANNEL_ID = int(os.environ.get("CHANNEL_ID", "-1000000000000"))
-ADMIN_IDS = os.environ.get("ADMIN_IDS", "").split(",")  # ví dụ: "123456,987654"
+ADMIN_IDS = [id.strip() for id in os.environ.get("ADMIN_IDS", "").split(",") if id.strip().isdigit()]
 
 # Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Biến toàn cục để lưu key map
-KEY_MAP = {}
+KEY_MAP = {}  # Global Key Map
 
-# Load Google Sheet
+# Load Google Sheet Function
 def load_key_map_from_sheet():
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -36,13 +35,13 @@ def load_key_map_from_sheet():
         credentials = ServiceAccountCredentials.from_json_keyfile_name("temp_key.json", scope)
         gc = gspread.authorize(credentials)
 
-        SHEET_NAME = os.environ.get("SHEET_NAME", "KeyData")
-        sheet_file = gc.open(SHEET_NAME)
+        sheet_name = os.environ.get("SHEET_NAME", "KeyData")
+        sheet_file = gc.open(sheet_name)
         tabs = os.environ.get("SHEET_TABS", "1").split(",")
 
         combined_df = pd.DataFrame()
-        for tab_name in tabs:
-            worksheet = sheet_file.worksheet(tab_name.strip())
+        for tab in tabs:
+            worksheet = sheet_file.worksheet(tab.strip())
             df = pd.DataFrame(worksheet.get_all_records())
             df["key"] = df["key"].astype(str).str.strip().str.lower()
             combined_df = pd.concat([combined_df, df], ignore_index=True)
@@ -54,11 +53,12 @@ def load_key_map_from_sheet():
 
         logger.info("✅ Google Sheet loaded successfully")
         return key_map
+
     except Exception as e:
-        logger.error(f"❌ Failed to load sheet: {e}")
+        logger.error(f"❌ Google Sheet loaded Failed. {e}")
         return {}
 
-# FastAPI
+# FastAPI App
 app = FastAPI()
 
 @app.on_event("startup")
@@ -86,12 +86,10 @@ async def telegram_webhook(token: str, request: Request):
     return {"ok": True}
 
 # Bot Handlers
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global KEY_MAP
-    KEY_MAP = load_key_map_from_sheet()
 
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "♥️ Hi. Please send your KEY UExxxxx to receive the file.\n♥️ Admin: t.me/A911Studio"
+        "♥️ Hi. Please send your key UExxxxx to receive the file.\n♥️ Admin: t.me/A911Studio"
     )
 
 async def reload_sheet(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -102,14 +100,18 @@ async def reload_sheet(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     global KEY_MAP
     KEY_MAP = load_key_map_from_sheet()
-    await update.message.reply_text("🔄 Google Sheet reloaded.")
+
+    if KEY_MAP:
+        await update.message.reply_text("🔄 Google Sheet reloaded successfully.")
+    else:
+        await update.message.reply_text("❌ Google Sheet reloaded Failed.")
 
 async def handle_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_input = update.message.text.strip().lower()
     chat_id = update.effective_chat.id
 
     if not KEY_MAP:
-        await update.message.reply_text("🔄 Bot is not started. Please type /start to start.")
+        await update.message.reply_text("🔄 Bot is not ready. Please wait or contact admin.\n♥️ Admin: t.me/A911Studio")
         return
 
     if user_input in KEY_MAP:
@@ -131,7 +133,7 @@ async def handle_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if errors:
             await update.message.reply_text(
-                "⚠️ Some files not found. Please contact admin for support.\n♥️ Admin: t.me/A911Studio"
+                "⚠️ Some files not found. Please contact admin.\n♥️ Admin: t.me/A911Studio"
             )
     else:
         await update.message.reply_text("❌ KEY is incorrect. Please check again.")
