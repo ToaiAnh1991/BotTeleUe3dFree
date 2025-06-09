@@ -55,7 +55,7 @@ def load_key_map_from_sheet():
         return key_map
 
     except Exception as e:
-        logger.error(f"❌ Google Sheet loaded Failed. {e}")
+        logger.error(f"❌ Google Sheet loaded Failed: {e}")
         return {}
 
 # FastAPI App
@@ -133,7 +133,7 @@ async def handle_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if errors:
             await update.message.reply_text(
-                "⚠️ Some files not found. Please contact admin.\n♥️ Admin: t.me/A911Studio"
+                "⚠️ Files not found. Please contact admin.\n♥️ Admin: t.me/A911Studio"
             )
     else:
         await update.message.reply_text("❌ KEY is incorrect. Please check again.")
