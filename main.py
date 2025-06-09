@@ -1,9 +1,10 @@
 import os
 import logging
 import gspread
+import pandas as pd
 from fastapi import FastAPI, Request
 from oauth2client.service_account import ServiceAccountCredentials
-from telegram import Update, Bot
+from telegram import Update
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -12,14 +13,17 @@ from telegram.ext import (
     filters,
 )
 
-import pandas as pd
-
+# ENV
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-CHANNEL_ID = int(os.environ.get("CHANNEL_ID", "-100..."))
+CHANNEL_ID = int(os.environ.get("CHANNEL_ID", "-1000000000000"))
+ADMIN_IDS = os.environ.get("ADMIN_IDS", "").split(",")  # ví dụ: "123456,987654"
 
 # Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Biến toàn cục để lưu key map
+KEY_MAP = {}
 
 # Load Google Sheet
 def load_key_map_from_sheet():
@@ -47,12 +51,12 @@ def load_key_map_from_sheet():
             key: group[["name_file", "message_id"]].to_dict("records")
             for key, group in combined_df.groupby("key")
         }
+
+        logger.info("✅ Google Sheet loaded successfully")
         return key_map
     except Exception as e:
-        logger.error(f"Failed to load sheet: {e}")
+        logger.error(f"❌ Failed to load sheet: {e}")
         return {}
-
-KEY_MAP = load_key_map_from_sheet()
 
 # FastAPI
 app = FastAPI()
@@ -63,16 +67,16 @@ async def startup():
     bot_app = Application.builder().token(BOT_TOKEN).build()
 
     bot_app.add_handler(CommandHandler("start", start))
+    bot_app.add_handler(CommandHandler("reload", reload_sheet))
     bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_key))
 
     await bot_app.initialize()
-    logger.info("Bot initialized")
+    logger.info("✅ Bot initialized")
 
 @app.post("/webhook/{token}")
 async def telegram_webhook(token: str, request: Request):
     if token != BOT_TOKEN:
         return {"error": "Invalid token"}
-
     try:
         body = await request.json()
         update = Update.de_json(body, bot_app.bot)
@@ -83,11 +87,30 @@ async def telegram_webhook(token: str, request: Request):
 
 # Bot Handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("♥️ Please send your KEY to receive the file.\n♥️ Admin: t.me/A911Studio")
+    global KEY_MAP
+    KEY_MAP = load_key_map_from_sheet()
+
+    await update.message.reply_text(
+        "♥️ Hi. Please send your KEY UExxxxx to receive the file.\n♥️ Admin: t.me/A911Studio"
+    )
+
+async def reload_sheet(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ You are not authorized to reload the sheet.")
+        return
+
+    global KEY_MAP
+    KEY_MAP = load_key_map_from_sheet()
+    await update.message.reply_text("🔄 Google Sheet reloaded.")
 
 async def handle_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_input = update.message.text.strip().lower()
     chat_id = update.effective_chat.id
+
+    if not KEY_MAP:
+        await update.message.reply_text("🔄 Bot is not started. Please type /start to start.")
+        return
 
     if user_input in KEY_MAP:
         files_info = KEY_MAP[user_input]
@@ -95,13 +118,12 @@ async def handle_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         for file_info in files_info:
             try:
-                sent_message = await context.bot.copy_message(
+                await context.bot.copy_message(
                     chat_id=chat_id,
                     from_chat_id=CHANNEL_ID,
                     message_id=int(file_info["message_id"]),
                     protect_content=True
                 )
-            
                 await update.message.reply_text(f"♥️ Your File \"{file_info['name_file']}\"")
             except Exception as e:
                 logger.error(f"File send error: {e}")
@@ -109,7 +131,7 @@ async def handle_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if errors:
             await update.message.reply_text(
-                "⚠️ File not found. Please contact admin for support.\n♥️ Admin: t.me/A911Studio"
+                "⚠️ Some files not found. Please contact admin for support.\n♥️ Admin: t.me/A911Studio"
             )
     else:
         await update.message.reply_text("❌ KEY is incorrect. Please check again.")
