@@ -95,7 +95,7 @@ async def telegram_webhook(token: str, request: Request):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "♥️ Hi. Please send your key UExxxxx to receive the file.\n♥️ Admin: t.me/A911Studio"
+        "♥️ Hi. Please send your key UExxxxx to the Ue3dFreeBOT to receive the file.\n♥️ Contact Admin if file error: t.me/A911Studio"
     )
 
 async def reload_sheet(update: Update, context: ContextTypes.DEFAULT_TYPE):
