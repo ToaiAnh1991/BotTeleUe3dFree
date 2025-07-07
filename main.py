@@ -20,6 +20,8 @@ import json
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHANNEL_ID = int(os.environ.get("CHANNEL_ID", "-1000000000000"))
 ADMIN_IDS = [id.strip() for id in os.environ.get("ADMIN_IDS", "").split(",") if id.strip().isdigit()]
+# THÊM BIẾN MÔI TRƯỜNG MỚI CHO PING
+PING_AUTH_TOKEN = os.environ.get("PING_AUTH_TOKEN") 
 
 # Logging
 logging.basicConfig(level=logging.INFO)
@@ -89,19 +91,56 @@ async def startup():
     asyncio.create_task(process_queue_task())
     logger.info("✅ Queue processing task started.")
 
+    # Gửi thông báo khi bot đã khởi động xong (cho kênh công khai và admin)
+    if KEY_MAP: # Chỉ gửi nếu sheet được tải thành công
+        try:
+            await bot_app.bot.send_message(
+                chat_id=CHANNEL_ID,
+                text="🎉 Bot has started! You can send your KEY now."
+            )
+            logger.info(f"Sent startup success message to channel {CHANNEL_ID}.")
+        except Exception as e:
+            logger.error(f"Failed to send startup success message to channel {CHANNEL_ID}: {e}")
+
+        for admin_id_str in ADMIN_IDS:
+            try:
+                admin_id = int(admin_id_str)
+                await bot_app.bot.send_message(chat_id=admin_id, text="✨ Bot has started and is ready! Keymap loaded successfully.")
+            except Exception as e:
+                logger.error(f"Failed to send startup message to admin {admin_id_str}: {e}")
+    else:
+         # Thông báo lỗi nếu KEY_MAP rỗng (tải sheet thất bại)
+         for admin_id_str in ADMIN_IDS:
+            try:
+                admin_id = int(admin_id_str)
+                await bot_app.bot.send_message(chat_id=admin_id, text="⚠️ Bot started but failed to load Keymap! Please check logs.")
+            except Exception as e:
+                logger.error(f"Failed to send startup error message to admin {admin_id_str}: {e}")
+
+
 @app.post("/webhook/{token}")
 async def telegram_webhook(token: str, request: Request):
+    # 1. Kiểm tra PING_AUTH_TOKEN trước
+    # Nếu token nhận được trùng với PING_AUTH_TOKEN, đây là một request ping
+    if PING_AUTH_TOKEN and token == PING_AUTH_TOKEN: # Đảm bảo PING_AUTH_TOKEN đã được set
+        logger.info("Received keep-alive ping with PING_AUTH_TOKEN.")
+        return {"ok": True} # Trả về OK ngay lập tức cho ping
+
+    # 2. Sau đó mới kiểm tra BOT_TOKEN cho các webhook thực sự từ Telegram
+    # Đây là token mà Telegram gửi đến, phải khớp với BOT_TOKEN của bạn
     if token != BOT_TOKEN:
+        logger.warning(f"Received webhook with invalid token: {token}")
         return {"error": "Invalid token"}
+    
     try:
         body = await request.json()
         
-        # Xử lý Ping từ cron-job.org:
+        # Xử lý các request không có 'update_id' (ví dụ: một số loại ping không chuẩn)
         # Nếu body rỗng (do bạn đã cấu hình {} trong cron-job.org)
         # hoặc nếu nó không chứa 'update_id' (một trường bắt buộc trong mỗi update Telegram)
         if not body or 'update_id' not in body: 
-            logger.info("Received empty or non-Telegram JSON body. Likely a keep-alive ping.")
-            return {"ok": True} # Trả về OK để xác nhận đã nhận request ping
+            logger.info("Received empty or non-Telegram JSON body (not a standard update from Telegram).")
+            return {"ok": True} 
 
         update = Update.de_json(body, bot_app.bot)
         await bot_app.process_update(update)
