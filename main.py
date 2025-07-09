@@ -44,7 +44,7 @@ def load_key_map_from_sheet():
             return {}
 
         # Đọc JSON từ chuỗi biến môi trường trực tiếp, không ghi file tạm
-        credentials = ServiceAccountAccountCredentials.from_json_keyfile_dict(json.loads(json_key_str), scope)
+        credentials = ServiceAccountCredentials.from_json_keyfile_dict(json.loads(json_key_str), scope)
         gc = gspread.authorize(credentials)
 
         sheet_name = os.environ.get("SHEET_NAME", "KeyData")
@@ -117,23 +117,17 @@ async def startup():
             except Exception as e:
                 logger.error(f"Failed to send startup error message to admin {admin_id_str}: {e}")
 
-# THÊM ENDPOINT GET RIÊNG CHO PING
-@app.get("/ping/{token}")
-async def ping_endpoint(token: str):
-    # Kiểm tra token ping
-    if PING_AUTH_TOKEN and token == PING_AUTH_TOKEN:
-        logger.info("Received GET keep-alive ping with PING_AUTH_TOKEN.")
-        return {"ok": True, "message": "Ping acknowledged"}
-    else:
-        logger.warning(f"Received GET ping with invalid token: {token}")
-        return {"error": "Invalid ping token"}, 401 # Trả về lỗi 401 Unauthorized nếu token sai
-
 
 @app.post("/webhook/{token}")
 async def telegram_webhook(token: str, request: Request):
-    # Endpoint này chỉ xử lý các webhook POST thực sự từ Telegram
-    # KHÔNG CẦN kiểm tra PING_AUTH_TOKEN ở đây nữa vì đã có endpoint GET riêng cho ping
+    # 1. Kiểm tra PING_AUTH_TOKEN trước
+    # Nếu token nhận được trùng với PING_AUTH_TOKEN, đây là một request ping
+    if PING_AUTH_TOKEN and token == PING_AUTH_TOKEN: # Đảm bảo PING_AUTH_TOKEN đã được set
+        logger.info("Received keep-alive ping with PING_AUTH_TOKEN.")
+        return {"ok": True} # Trả về OK ngay lập tức cho ping
 
+    # 2. Sau đó mới kiểm tra BOT_TOKEN cho các webhook thực sự từ Telegram
+    # Đây là token mà Telegram gửi đến, phải khớp với BOT_TOKEN của bạn
     if token != BOT_TOKEN:
         logger.warning(f"Received webhook with invalid token: {token}")
         return {"error": "Invalid token"}
@@ -141,11 +135,12 @@ async def telegram_webhook(token: str, request: Request):
     try:
         body = await request.json()
         
-        # Kiểm tra xem body có phải là một update Telegram hợp lệ không
-        # (Telegram updates luôn có 'update_id')
+        # Xử lý các request không có 'update_id' (ví dụ: một số loại ping không chuẩn)
+        # Nếu body rỗng (do bạn đã cấu hình {} trong cron-job.org)
+        # hoặc nếu nó không chứa 'update_id' (một trường bắt buộc trong mỗi update Telegram)
         if not body or 'update_id' not in body: 
-            logger.info("Received non-Telegram JSON body on webhook endpoint. Ignoring.")
-            return {"ok": True} # Trả về OK để Telegram không gửi lại
+            logger.info("Received empty or non-Telegram JSON body (not a standard update from Telegram).")
+            return {"ok": True} 
 
         update = Update.de_json(body, bot_app.bot)
         await bot_app.process_update(update)
